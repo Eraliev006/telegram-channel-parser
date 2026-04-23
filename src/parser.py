@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError
+from telethon.tl.functions.channels import GetFullChannelRequest
 
 from src.core.config import AppConfig
 from src.core import Database, get_logger, Channel, Post
@@ -23,26 +24,33 @@ class Parser:
         post_limit = post_limit if post_limit else self._config.post_limit
         try:
             channel = await self._client.get_entity(username)
+            full = await self._client(GetFullChannelRequest(channel))
+            description = full.full_chat.about
+
+            if not channel.username:
+                logger.warning(f"Skipping {username}: no username")
+                return
+
             channel_obj = Channel(
                 id=uuid4(),
                 name=channel.title,
                 username=channel.username,
-                description=getattr(channel, 'about', None),
-                followers_count=channel.participants_count,
+                description=description,
+                followers_count=full.full_chat.participants_count or 0,
                 avatar_url=None,
             )
 
             logger.info('Parsed channel: @%s, subscribers: %d', channel_obj.username, channel_obj.followers_count or 0)
-            await self._db.save_channel(channel_obj)
+            channel_id = await self._db.save_channel(channel_obj)
 
             messages = await self._client.get_messages(username, limit=post_limit)
             for message in messages:
                 post_obj = Post(
                     id=uuid4(),
-                    channel_id=channel_obj.id,
+                    channel_id=channel_id,
                     message_id=message.id,
                     text=message.text,
-                    published_at=message.date,
+                    published_at=message.date.replace(tzinfo=None),
                     views_count=message.views or 0,
                     comments_count=message.replies.replies if message.replies else 0,
                     replies_count=0,
@@ -64,14 +72,15 @@ class Parser:
         logger.info('Start parsing')
         async with self._client:
             with open(self._config.channels_file, "r") as f:
-                logger.debug('File with data: %s', self._config.channels_file)
                 usernames = [line.strip() for line in f if line.strip()]
-                if channel_limit:
-                    usernames = usernames[:channel_limit]
 
-            for username in usernames:
-                await self.parse_channel(username, post_limit=post_limit)
-                await asyncio.sleep(2)
+            logger.debug('Total channels: %d', len(usernames))
+
+            batch_size = 10
+            for i in range(0, len(usernames), batch_size):
+                batch = usernames[i:i + batch_size]
+                await asyncio.gather(*[self.parse_channel(u) for u in batch])
+                await asyncio.sleep(5)
 
         logger.info('End parsing')
 
