@@ -2,12 +2,13 @@ from .config import load_config
 from .logger import get_logger
 from .config import DatabaseConfig
 from .models import Channel, Post
-from .db import Database
+from .db import Database, get_db
 __all__ = [
     'load_config',
     'get_logger',
     'DatabaseConfig',
     'Channel',
     'Post',
-    'Database'
+    'Database',
+    'get_db'
 ]

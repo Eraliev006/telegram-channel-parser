@@ -19,7 +19,8 @@ class Parser:
             config.telegram.api_hash
         )
 
-    async def parse_channel(self, username: str) -> None:
+    async def parse_channel(self, username: str, post_limit: int | None= None) -> None:
+        post_limit = post_limit if post_limit else self._config.post_limit
         try:
             channel = await self._client.get_entity(username)
             channel_obj = Channel(
@@ -34,7 +35,7 @@ class Parser:
             logger.info('Parsed channel: @%s, subscribers: %d', channel_obj.username, channel_obj.followers_count or 0)
             await self._db.save_channel(channel_obj)
 
-            messages = await self._client.get_messages(username, limit=10)
+            messages = await self._client.get_messages(username, limit=post_limit)
             for message in messages:
                 post_obj = Post(
                     id=uuid4(),
@@ -59,15 +60,17 @@ class Parser:
             logger.error(f"Error parsing {username}: {e}")
 
 
-    async def run(self) -> None:
+    async def run(self, post_limit: int | None=None, channel_limit: int | None =None) -> None:
         logger.info('Start parsing')
         async with self._client:
             with open(self._config.channels_file, "r") as f:
                 logger.debug('File with data: %s', self._config.channels_file)
                 usernames = [line.strip() for line in f if line.strip()]
+                if channel_limit:
+                    usernames = usernames[:channel_limit]
 
             for username in usernames:
-                await self.parse_channel(username)
+                await self.parse_channel(username, post_limit=post_limit)
                 await asyncio.sleep(2)
 
         logger.info('End parsing')
