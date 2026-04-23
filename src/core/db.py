@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 import asyncpg
 
 from src.core import get_logger, Channel, Post
@@ -102,3 +104,14 @@ class Database:
         if self._conn:
             await self._conn.close()
             logger.info('Connection with DB closed')
+
+
+@asynccontextmanager
+async def get_db(config: DatabaseConfig):
+    db = Database(config)
+    await db.connect()
+    await db.init_db()
+    try:
+        yield db
+    finally:
+        await db.dispose()
